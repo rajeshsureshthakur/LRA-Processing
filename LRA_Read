@@ -1,0 +1,79 @@
+import java.io.*;
+import java.util.*;
+
+public class TransactionProcessor {
+    public static void main(String[] args) {
+        String inputFile = "input.csv";  // Replace with your input file path
+        String outputFile = "output.csv"; // Output will be CSV instead of Excel
+        
+        try {
+            processTransactions(inputFile, outputFile);
+            System.out.println("Processing completed successfully! Check " + outputFile);
+        } catch (Exception e) {
+            System.err.println("Error processing file: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public static void processTransactions(String inputFile, String outputFile) throws IOException {
+        // Read the CSV file
+        List<String[]> allRows = readCSV(inputFile);
+        if (allRows.isEmpty()) {
+            throw new IOException("CSV file is empty");
+        }
+        
+        // Get transaction names from first row
+        String[] transactionNames = allRows.get(0);
+        
+        // Get response times from row 96 (index 95)
+        String[] responseTimes = allRows.size() > 95 ? allRows.get(95) : null;
+        if (responseTimes == null) {
+            throw new IOException("Row 96 not found in the CSV file");
+        }
+        
+        // Create sorted map to store results
+        TreeMap<String, String> results = new TreeMap<>();
+        
+        // Process each transaction and its response time
+        for (int i = 0; i < transactionNames.length; i++) {
+            if (i < responseTimes.length && transactionNames[i] != null && !transactionNames[i].trim().isEmpty()) {
+                results.put(transactionNames[i], responseTimes[i]);
+            }
+        }
+        
+        // Write to CSV file
+        writeToCSV(results, outputFile);
+    }
+    
+    private static List<String[]> readCSV(String fileName) throws IOException {
+        List<String[]> rows = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                // Split on comma but handle cases where values might contain commas
+                String[] values = line.split(",(?=([^\"]*\"[^\"]*\")*[^\"]*$)", -1);
+                // Remove any surrounding quotes and trim whitespace
+                for (int i = 0; i < values.length; i++) {
+                    values[i] = values[i].trim().replaceAll("^\"|\"$", "");
+                }
+                rows.add(values);
+            }
+        }
+        return rows;
+    }
+    
+    private static void writeToCSV(TreeMap<String, String> data, String outputFile) throws IOException {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(outputFile))) {
+            // Write header
+            writer.println("Application_Transaction,Response_Time");
+            
+            // Write data
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                // Escape any commas in the transaction name
+                String transactionName = entry.getKey().contains(",") ? 
+                    "\"" + entry.getKey() + "\"" : entry.getKey();
+                writer.println(transactionName + "," + entry.getValue());
+            }
+        }
+    }
+}
