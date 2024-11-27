@@ -15,16 +15,14 @@ public class TransactionProcessor {
     static class TransactionCounts {
         String applicationName;    
         String transactionName;
-        String fullTransactionName;
         int pass;
         int fail;
         double failPercentage;
         
-        TransactionCounts(String fullName, int pass, int fail) {
-            this.fullTransactionName = fullName;
-            String[] parts = fullName.split("_", 2);
+        TransactionCounts(String transName, int pass, int fail) {
+            String[] parts = transName.split("_", 2);
             this.applicationName = parts[0];
-            this.transactionName = parts.length > 1 ? parts[1] : fullName;
+            this.transactionName = transName;  // Keep full transaction name
             this.pass = pass;
             this.fail = fail;
             int total = pass + fail;
@@ -33,11 +31,11 @@ public class TransactionProcessor {
     }
 
     public static void main(String[] args) {
-        String responseTimeFile = "input.csv";     // File with response times
-        String countFile = "counts.csv";           // File with pass/fail counts
-        String outputFile = "output.csv";          // Main output file
-        String summaryFile = "summary.csv";        // Summary file
-        String failureFile = "high_failures.csv";  // High failure rate file
+        String responseTimeFile = "input.csv";     
+        String countFile = "counts.csv";           
+        String outputFile = "output.csv";          
+        String summaryFile = "summary.csv";        
+        String failureFile = "high_failures.csv";  
         
         try {
             processFiles(responseTimeFile, countFile, outputFile, summaryFile, failureFile);
