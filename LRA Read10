@@ -1,0 +1,330 @@
+import java.io.*;
+import java.util.*;
+
+public class TransactionProcessor {
+    static class ApplicationStats {
+        String applicationName;
+        int totalTransactions = 0;
+        int transactionsOver4Seconds = 0;
+        int totalPass = 0;
+        int totalFail = 0;
+        
+        ApplicationStats(String name) {
+            this.applicationName = name;
+        }
+        
+        double getFailPercentage() {
+            int total = totalPass + totalFail;
+            return total > 0 ? (totalFail * 100.0 / total) : 0.0;
+        }
+        
+        double getOver4SecPercentage() {
+            return totalTransactions > 0 ? 
+                (transactionsOver4Seconds * 100.0 / totalTransactions) : 0.0;
+        }
+    }
+
+    static class TransactionCounts {
+        String applicationName;    
+        String transactionName;
+        int pass;
+        int fail;
+        double failPercentage;
+        
+        TransactionCounts(String transName, int pass, int fail) {
+            String[] parts = transName.split("_", 2);
+            this.applicationName = parts[0];
+            this.transactionName = transName;
+            this.pass = pass;
+            this.fail = fail;
+            int total = pass + fail;
+            this.failPercentage = total > 0 ? (fail * 100.0 / total) : 0.0;
+        }
+    }
+
+    static class ResponseTimeInfo {
+        String applicationName;    
+        String transactionName;
+        double responseTime;
+        
+        ResponseTimeInfo(String transName, double respTime) {
+            String[] parts = transName.split("_", 2);
+            this.applicationName = parts[0];
+            this.transactionName = transName;
+            this.responseTime = respTime;
+        }
+    }
+
+    private static boolean isSpecialTransaction(String transactionName) {
+        String upperCase = transactionName.toUpperCase();
+        return upperCase.contains("_IDL_") || 
+               upperCase.contains("_INDIA_") ||
+               upperCase.contains("_INDIA") || // For cases where it's at the end
+               upperCase.contains("INDIA_");   // For cases where it's at the start
+    }
+
+    public static void main(String[] args) {
+        String responseTimeFile = "input.csv";     
+        String countFile = "counts.csv";           
+        String outputFile = "output.csv";          
+        String summaryFile = "summary.csv";        
+        String failureFile = "high_failures.csv";  
+        String highResponseFile = "high_response_times.csv";
+
+        String specialOutputFile = "special_output.csv";          
+        String specialSummaryFile = "special_summary.csv";        
+        String specialFailureFile = "special_high_failures.csv";  
+        String specialHighResponseFile = "special_high_response_times.csv";
+        
+        try {
+            processFiles(
+                responseTimeFile, countFile, 
+                outputFile, summaryFile, failureFile, highResponseFile,
+                specialOutputFile, specialSummaryFile, specialFailureFile, specialHighResponseFile
+            );
+            System.out.println("Processing completed successfully! Check output files:");
+            System.out.println("\nRegular Transaction Files:");
+            System.out.println("1. " + outputFile + " - Main output with response times");
+            System.out.println("2. " + summaryFile + " - Application summary");
+            System.out.println("3. " + failureFile + " - High failure transactions (>5% fail rate)");
+            System.out.println("4. " + highResponseFile + " - High response time transactions (>2s)");
+            System.out.println("\nSpecial Transaction Files (IDL/India):");
+            System.out.println("1. " + specialOutputFile + " - Special transactions main output");
+            System.out.println("2. " + specialSummaryFile + " - Special transactions summary");
+            System.out.println("3. " + specialFailureFile + " - Special transactions high failures");
+            System.out.println("4. " + specialHighResponseFile + " - Special transactions high response times");
+        } catch (Exception e) {
+            System.err.println("Error processing files: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public static void processFiles(
+            String responseTimeFile, String countFile, 
+            String outputFile, String summaryFile, String failureFile, String highResponseFile,
+            String specialOutputFile, String specialSummaryFile, String specialFailureFile, String specialHighResponseFile) 
+            throws IOException {
+        
+        TreeMap<String, String[]> combinedData = new TreeMap<>();
+        Map<String, ApplicationStats> applicationStats = new HashMap<>();
+        List<TransactionCounts> failureStats = new ArrayList<>();
+        List<ResponseTimeInfo> responseTimeStats = new ArrayList<>();
+        
+        TreeMap<String, String[]> specialCombinedData = new TreeMap<>();
+        Map<String, ApplicationStats> specialApplicationStats = new HashMap<>();
+        List<TransactionCounts> specialFailureStats = new ArrayList<>();
+        List<ResponseTimeInfo> specialResponseTimeStats = new ArrayList<>();
+        
+        // Read response times
+        try (BufferedReader br = new BufferedReader(new FileReader(responseTimeFile))) {
+            String firstLine = br.readLine();
+            if (firstLine == null) throw new IOException("Response time CSV file is empty");
+            String[] transactionNames = splitCSVLine(firstLine);
+            
+            for (int i = 0; i < 94; i++) {
+                if (br.readLine() == null) throw new IOException("File does not contain row 96");
+            }
+            
+            String responseLine = br.readLine();
+            if (responseLine == null) throw new IOException("File does not contain row 96");
+            String[] responseTimes = splitCSVLine(responseLine);
+            
+            for (int i = 0; i < transactionNames.length && i < responseTimes.length; i++) {
+                String transName = transactionNames[i].trim();
+                if (!transName.isEmpty()) {
+                    String formattedResponseTime = formatResponseTime(responseTimes[i].trim());
+                    boolean isSpecial = isSpecialTransaction(transName);
+                    
+                    if (isSpecial) {
+                        specialCombinedData.put(transName, new String[]{formattedResponseTime, "0", "0"});
+                    } else {
+                        combinedData.put(transName, new String[]{formattedResponseTime, "0", "0"});
+                    }
+                    
+                    String[] parts = transName.split("_", 2);
+                    if (parts.length > 0) {
+                        String appName = parts[0];
+                        Map<String, ApplicationStats> statsMap = isSpecial ? specialApplicationStats : applicationStats;
+                        ApplicationStats stats = statsMap.computeIfAbsent(appName, 
+                            ApplicationStats::new);
+                        stats.totalTransactions++;
+                        
+                        try {
+                            double responseTime = Double.parseDouble(formattedResponseTime);
+                            if (responseTime > 4.0) {
+                                stats.transactionsOver4Seconds++;
+                            }
+                            if (responseTime > 2.0) {
+                                if (isSpecial) {
+                                    specialResponseTimeStats.add(new ResponseTimeInfo(transName, responseTime));
+                                } else {
+                                    responseTimeStats.add(new ResponseTimeInfo(transName, responseTime));
+                                }
+                            }
+                        } catch (NumberFormatException e) {
+                            // Skip invalid response times
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Read pass/fail counts
+        try (BufferedReader br = new BufferedReader(new FileReader(countFile))) {
+            String line = br.readLine(); // Skip header
+            
+            while ((line = br.readLine()) != null) {
+                String[] parts = splitCSVLine(line);
+                if (parts.length >= 3) {
+                    String transName = parts[0].trim();
+                    try {
+                        int failCount = Integer.parseInt(parts[1].trim());
+                        int passCount = Integer.parseInt(parts[2].trim());
+                        
+                        // Update application stats with pass/fail counts
+                        String[] appParts = transName.split("_", 2);
+                        if (appParts.length > 0) {
+                            String appName = appParts[0];
+                            boolean isSpecial = isSpecialTransaction(transName);
+                            Map<String, ApplicationStats> statsMap = isSpecial ? specialApplicationStats : applicationStats;
+                            ApplicationStats stats = statsMap.computeIfAbsent(appName, ApplicationStats::new);
+                            stats.totalPass += passCount;
+                            stats.totalFail += failCount;
+                        }
+                        
+                        TransactionCounts counts = new TransactionCounts(transName, passCount, failCount);
+                        boolean isSpecial = isSpecialTransaction(transName);
+                        
+                        if (counts.failPercentage > 5.0) {
+                            if (isSpecial) {
+                                specialFailureStats.add(counts);
+                            } else {
+                                failureStats.add(counts);
+                            }
+                        }
+                        
+                        TreeMap<String, String[]> targetMap = isSpecial ? specialCombinedData : combinedData;
+                        if (targetMap.containsKey(transName)) {
+                            String[] data = targetMap.get(transName);
+                            data[1] = String.valueOf(failCount);
+                            data[2] = String.valueOf(passCount);
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("Warning: Invalid pass/fail count for transaction: " + transName);
+                    }
+                }
+            }
+        }
+        
+        // Write all files
+        writeOutputFile(outputFile, combinedData);
+        writeSummaryFile(summaryFile, applicationStats);
+        writeFailureFile(failureFile, failureStats);
+        writeResponseTimeFile(highResponseFile, responseTimeStats);
+        
+        writeOutputFile(specialOutputFile, specialCombinedData);
+        writeSummaryFile(specialSummaryFile, specialApplicationStats);
+        writeFailureFile(specialFailureFile, specialFailureStats);
+        writeResponseTimeFile(specialHighResponseFile, specialResponseTimeStats);
+    }
+    
+    private static void writeOutputFile(String fileName, TreeMap<String, String[]> data) throws IOException {
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(fileName)))) {
+            writer.println("Application_Transaction,Response_Time,Fail_Count,Pass_Count");
+            
+            for (Map.Entry<String, String[]> entry : data.entrySet()) {
+                String transactionName = entry.getKey().contains(",") ? 
+                    "\"" + entry.getKey() + "\"" : entry.getKey();
+                String[] values = entry.getValue();
+                writer.printf("%s,%s,%s,%s%n",
+                    transactionName,
+                    values[0],
+                    values[1],
+                    values[2]
+                );
+            }
+        }
+    }
+    
+    private static void writeSummaryFile(String fileName, Map<String, ApplicationStats> stats) throws IOException {
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(fileName)))) {
+            writer.println("Application,Total_Transactions,Transactions_Over_4_Seconds,Percentage_Over_4_Seconds," +
+                         "Total_Pass,Total_Fail,Fail_Percentage");
+            
+            for (ApplicationStats stat : stats.values()) {
+                writer.printf("%s,%d,%d,%.1f%%,%d,%d,%.1f%%%n",
+                    stat.applicationName,
+                    stat.totalTransactions,
+                    stat.transactionsOver4Seconds,
+                    stat.getOver4SecPercentage(),
+                    stat.totalPass,
+                    stat.totalFail,
+                    stat.getFailPercentage()
+                );
+            }
+        }
+    }
+    
+    private static void writeFailureFile(String fileName, List<TransactionCounts> stats) throws IOException {
+        stats.sort((a, b) -> Double.compare(b.failPercentage, a.failPercentage));
+        
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(fileName)))) {
+            writer.println("Application,Transaction_Name,Pass_Count,Fail_Count,Fail_Percentage");
+            
+            for (TransactionCounts counts : stats) {
+                writer.printf("%s,%s,%d,%d,%.1f%%%n",
+                    counts.applicationName,
+                    counts.transactionName,
+                    counts.pass,
+                    counts.fail,
+                    counts.failPercentage
+                );
+            }
+        }
+    }
+    
+    private static void writeResponseTimeFile(String fileName, List<ResponseTimeInfo> stats) throws IOException {
+        stats.sort((a, b) -> Double.compare(b.responseTime, a.responseTime));
+        
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(fileName)))) {
+            writer.println("Application,Transaction_Name,Response_Time");
+            
+            for (ResponseTimeInfo info : stats) {
+                writer.printf("%s,%s,%.1f%n",
+                    info.applicationName,
+                    info.transactionName,
+                    info.responseTime
+                );
+            }
+        }
+    }
+    
+    private static String formatResponseTime(String responseTime) {
+        try {
+            double value = Double.parseDouble(responseTime);
+            return String.format("%.1f", value);
+        } catch (NumberFormatException e) {
+            return responseTime;
+        }
+    }
+    
+    private static String[] splitCSVLine(String line) {
+        List<String> result = new ArrayList<>();
+        boolean inQuotes = false;
+        StringBuilder currentValue = new StringBuilder();
+        
+        for (char c : line.toCharArray()) {
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                result.add(currentValue.toString().trim().replaceAll("^\"|\"$", ""));
+                currentValue.setLength(0);
+            } else {
+                currentValue.append(c);
+            }
+        }
+        result.add(currentValue.toString().trim().replaceAll("^\"|\"$", ""));
+        
+        return result.toArray(new String[0]);
+    }
+}
