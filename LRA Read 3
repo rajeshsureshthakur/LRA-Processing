@@ -1,0 +1,167 @@
+import java.io.*;
+import java.util.*;
+
+public class TransactionProcessor {
+    static class ApplicationStats {
+        String applicationName;
+        int totalTransactions = 0;
+        int transactionsOver4Seconds = 0;
+        
+        ApplicationStats(String name) {
+            this.applicationName = name;
+        }
+    }
+
+    public static void main(String[] args) {
+        String responseTimeFile = "input.csv";    // File with response times
+        String countFile = "counts.csv";          // File with pass/fail counts
+        String outputFile = "output.csv";         // Output file
+        String summaryFile = "summary.csv";       // Summary file
+        
+        try {
+            processFiles(responseTimeFile, countFile, outputFile, summaryFile);
+            System.out.println("Processing completed successfully! Check " + outputFile + " and " + summaryFile);
+        } catch (Exception e) {
+            System.err.println("Error processing files: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public static void processFiles(String responseTimeFile, String countFile, 
+                                  String outputFile, String summaryFile) throws IOException {
+        TreeMap<String, String[]> combinedData = new TreeMap<>();
+        Map<String, ApplicationStats> applicationStats = new HashMap<>();
+        
+        // Read response times
+        try (BufferedReader br = new BufferedReader(new FileReader(responseTimeFile))) {
+            String firstLine = br.readLine();
+            if (firstLine == null) {
+                throw new IOException("Response time CSV file is empty");
+            }
+            String[] transactionNames = splitCSVLine(firstLine);
+            
+            // Skip to row 95
+            for (int i = 0; i < 94; i++) {
+                if (br.readLine() == null) {
+                    throw new IOException("File does not contain row 96");
+                }
+            }
+            
+            String responseLine = br.readLine();
+            if (responseLine == null) {
+                throw new IOException("File does not contain row 96");
+            }
+            String[] responseTimes = splitCSVLine(responseLine);
+            
+            // Process transactions and collect statistics
+            for (int i = 0; i < transactionNames.length && i < responseTimes.length; i++) {
+                String transName = transactionNames[i].trim();
+                if (!transName.isEmpty()) {
+                    String formattedResponseTime = formatResponseTime(responseTimes[i].trim());
+                    combinedData.put(transName, new String[]{formattedResponseTime, "0", "0"});
+                    
+                    // Extract application name and update statistics
+                    String[] parts = transName.split("_", 2);
+                    if (parts.length > 0) {
+                        String appName = parts[0];
+                        ApplicationStats stats = applicationStats.computeIfAbsent(appName, 
+                            ApplicationStats::new);
+                        stats.totalTransactions++;
+                        
+                        try {
+                            double responseTime = Double.parseDouble(formattedResponseTime);
+                            if (responseTime > 4.0) {
+                                stats.transactionsOver4Seconds++;
+                            }
+                        } catch (NumberFormatException e) {
+                            // Skip invalid response times
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Read pass/fail counts
+        try (BufferedReader br = new BufferedReader(new FileReader(countFile))) {
+            String line = br.readLine(); // Skip header
+            
+            while ((line = br.readLine()) != null) {
+                String[] parts = splitCSVLine(line);
+                if (parts.length >= 3) {
+                    String transName = parts[0].trim();
+                    String failCount = parts[1].trim();
+                    String passCount = parts[2].trim();
+                    
+                    if (combinedData.containsKey(transName)) {
+                        String[] data = combinedData.get(transName);
+                        data[1] = failCount;
+                        data[2] = passCount;
+                    }
+                }
+            }
+        }
+        
+        // Write main data file
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(outputFile)))) {
+            writer.println("Application_Transaction,Response_Time,Fail_Count,Pass_Count");
+            
+            for (Map.Entry<String, String[]> entry : combinedData.entrySet()) {
+                String transactionName = entry.getKey().contains(",") ? 
+                    "\"" + entry.getKey() + "\"" : entry.getKey();
+                String[] data = entry.getValue();
+                writer.printf("%s,%s,%s,%s%n",
+                    transactionName,
+                    data[0],
+                    data[1],
+                    data[2]
+                );
+            }
+        }
+        
+        // Write summary file
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(summaryFile)))) {
+            writer.println("Application,Total_Transactions,Transactions_Over_4_Seconds,Percentage_Over_4_Seconds");
+            
+            for (ApplicationStats stats : applicationStats.values()) {
+                double percentage = stats.totalTransactions > 0 ? 
+                    (stats.transactionsOver4Seconds * 100.0 / stats.totalTransactions) : 0.0;
+                
+                writer.printf("%s,%d,%d,%.1f%%%n",
+                    stats.applicationName,
+                    stats.totalTransactions,
+                    stats.transactionsOver4Seconds,
+                    percentage
+                );
+            }
+        }
+    }
+    
+    private static String formatResponseTime(String responseTime) {
+        try {
+            double value = Double.parseDouble(responseTime);
+            return String.format("%.1f", value);
+        } catch (NumberFormatException e) {
+            return responseTime;
+        }
+    }
+    
+    private static String[] splitCSVLine(String line) {
+        List<String> result = new ArrayList<>();
+        boolean inQuotes = false;
+        StringBuilder currentValue = new StringBuilder();
+        
+        for (char c : line.toCharArray()) {
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                result.add(currentValue.toString().trim().replaceAll("^\"|\"$", ""));
+                currentValue.setLength(0);
+            } else {
+                currentValue.append(c);
+            }
+        }
+        result.add(currentValue.toString().trim().replaceAll("^\"|\"$", ""));
+        
+        return result.toArray(new String[0]);
+    }
+}
