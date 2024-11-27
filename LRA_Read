@@ -16,64 +16,72 @@ public class TransactionProcessor {
     }
     
     public static void processTransactions(String inputFile, String outputFile) throws IOException {
-        // Read the CSV file
-        List<String[]> allRows = readCSV(inputFile);
-        if (allRows.isEmpty()) {
-            throw new IOException("CSV file is empty");
-        }
-        
-        // Get transaction names from first row
-        String[] transactionNames = allRows.get(0);
-        
-        // Get response times from row 96 (index 95)
-        String[] responseTimes = allRows.size() > 95 ? allRows.get(95) : null;
-        if (responseTimes == null) {
-            throw new IOException("Row 96 not found in the CSV file");
-        }
-        
-        // Create sorted map to store results
+        // Create map to store transaction names and response times
         TreeMap<String, String> results = new TreeMap<>();
         
-        // Process each transaction and its response time
-        for (int i = 0; i < transactionNames.length; i++) {
-            if (i < responseTimes.length && transactionNames[i] != null && !transactionNames[i].trim().isEmpty()) {
-                results.put(transactionNames[i], responseTimes[i]);
+        // Read specific rows from CSV
+        try (BufferedReader br = new BufferedReader(new FileReader(inputFile))) {
+            // Read first row (transaction names)
+            String firstLine = br.readLine();
+            if (firstLine == null) {
+                throw new IOException("CSV file is empty");
+            }
+            String[] transactionNames = splitCSVLine(firstLine);
+            
+            // Skip to row 95 (to get to row 96)
+            for (int i = 0; i < 94; i++) {
+                if (br.readLine() == null) {
+                    throw new IOException("File does not contain row 96");
+                }
+            }
+            
+            // Read row 96 (response times)
+            String responseLine = br.readLine();
+            if (responseLine == null) {
+                throw new IOException("File does not contain row 96");
+            }
+            String[] responseTimes = splitCSVLine(responseLine);
+            
+            // Process the data
+            for (int i = 0; i < transactionNames.length && i < responseTimes.length; i++) {
+                String transName = transactionNames[i].trim();
+                if (!transName.isEmpty()) {
+                    results.put(transName, responseTimes[i].trim());
+                }
             }
         }
         
-        // Write to CSV file
-        writeToCSV(results, outputFile);
-    }
-    
-    private static List<String[]> readCSV(String fileName) throws IOException {
-        List<String[]> rows = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(fileName))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                // Split on comma but handle cases where values might contain commas
-                String[] values = line.split(",(?=([^\"]*\"[^\"]*\")*[^\"]*$)", -1);
-                // Remove any surrounding quotes and trim whitespace
-                for (int i = 0; i < values.length; i++) {
-                    values[i] = values[i].trim().replaceAll("^\"|\"$", "");
-                }
-                rows.add(values);
-            }
-        }
-        return rows;
-    }
-    
-    private static void writeToCSV(TreeMap<String, String> data, String outputFile) throws IOException {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(outputFile))) {
+        // Write results to output file
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(outputFile)))) {
             // Write header
             writer.println("Application_Transaction,Response_Time");
             
             // Write data
-            for (Map.Entry<String, String> entry : data.entrySet()) {
-                // Escape any commas in the transaction name
+            for (Map.Entry<String, String> entry : results.entrySet()) {
                 String transactionName = entry.getKey().contains(",") ? 
                     "\"" + entry.getKey() + "\"" : entry.getKey();
                 writer.println(transactionName + "," + entry.getValue());
             }
         }
+    }
+    
+    private static String[] splitCSVLine(String line) {
+        List<String> result = new ArrayList<>();
+        boolean inQuotes = false;
+        StringBuilder currentValue = new StringBuilder();
+        
+        for (char c : line.toCharArray()) {
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ',' && !inQuotes) {
+                result.add(currentValue.toString().trim().replaceAll("^\"|\"$", ""));
+                currentValue.setLength(0);
+            } else {
+                currentValue.append(c);
+            }
+        }
+        result.add(currentValue.toString().trim().replaceAll("^\"|\"$", ""));
+        
+        return result.toArray(new String[0]);
     }
 }
