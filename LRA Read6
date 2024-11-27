@@ -13,7 +13,7 @@ public class TransactionProcessor {
     }
 
     static class TransactionCounts {
-        String applicationName;    // Added application name
+        String applicationName;    
         String transactionName;
         String fullTransactionName;
         int pass;
@@ -41,7 +41,10 @@ public class TransactionProcessor {
         
         try {
             processFiles(responseTimeFile, countFile, outputFile, summaryFile, failureFile);
-            System.out.println("Processing completed successfully! Check output files.");
+            System.out.println("Processing completed successfully! Check output files:");
+            System.out.println("1. " + outputFile + " - Main output with response times");
+            System.out.println("2. " + summaryFile + " - Application summary");
+            System.out.println("3. " + failureFile + " - High failure transactions (>5% fail rate)");
         } catch (Exception e) {
             System.err.println("Error processing files: " + e.getMessage());
             e.printStackTrace();
@@ -50,7 +53,6 @@ public class TransactionProcessor {
     
     public static void processFiles(String responseTimeFile, String countFile, 
                                   String outputFile, String summaryFile, String failureFile) throws IOException {
-        // Previous code remains the same until the failureStats processing
         TreeMap<String, String[]> combinedData = new TreeMap<>();
         Map<String, ApplicationStats> applicationStats = new HashMap<>();
         List<TransactionCounts> failureStats = new ArrayList<>();
@@ -103,18 +105,22 @@ public class TransactionProcessor {
                 String[] parts = splitCSVLine(line);
                 if (parts.length >= 3) {
                     String transName = parts[0].trim();
-                    int failCount = Integer.parseInt(parts[1].trim());
-                    int passCount = Integer.parseInt(parts[2].trim());
-                    
-                    TransactionCounts counts = new TransactionCounts(transName, passCount, failCount);
-                    if (counts.failPercentage > 5.0) {  // Only add transactions with >5% failure rate
-                        failureStats.add(counts);
-                    }
-                    
-                    if (combinedData.containsKey(transName)) {
-                        String[] data = combinedData.get(transName);
-                        data[1] = String.valueOf(failCount);
-                        data[2] = String.valueOf(passCount);
+                    try {
+                        int failCount = Integer.parseInt(parts[1].trim());
+                        int passCount = Integer.parseInt(parts[2].trim());
+                        
+                        TransactionCounts counts = new TransactionCounts(transName, passCount, failCount);
+                        if (counts.failPercentage > 5.0) {  // Only add transactions with >5% failure rate
+                            failureStats.add(counts);
+                        }
+                        
+                        if (combinedData.containsKey(transName)) {
+                            String[] data = combinedData.get(transName);
+                            data[1] = String.valueOf(failCount);
+                            data[2] = String.valueOf(passCount);
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("Warning: Invalid pass/fail count for transaction: " + transName);
                     }
                 }
             }
@@ -157,7 +163,7 @@ public class TransactionProcessor {
         // Sort failures by percentage in descending order
         failureStats.sort((a, b) -> Double.compare(b.failPercentage, a.failPercentage));
         
-        // Write high failure rate file with application name
+        // Write high failure rate file
         try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(failureFile)))) {
             writer.println("Application,Transaction_Name,Pass_Count,Fail_Count,Fail_Percentage");
             
