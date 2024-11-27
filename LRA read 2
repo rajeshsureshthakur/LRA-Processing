@@ -47,7 +47,9 @@ public class TransactionProcessor {
             for (int i = 0; i < transactionNames.length && i < responseTimes.length; i++) {
                 String transName = transactionNames[i].trim();
                 if (!transName.isEmpty()) {
-                    combinedData.put(transName, new String[]{responseTimes[i].trim(), "0", "0"});
+                    // Format response time to 1 decimal place
+                    String formattedResponseTime = formatResponseTime(responseTimes[i].trim());
+                    combinedData.put(transName, new String[]{formattedResponseTime, "0", "0"});
                 }
             }
         }
@@ -93,6 +95,15 @@ public class TransactionProcessor {
                     data[2]
                 );
             }
+        }
+    }
+    
+    private static String formatResponseTime(String responseTime) {
+        try {
+            double value = Double.parseDouble(responseTime);
+            return String.format("%.1f", value);
+        } catch (NumberFormatException e) {
+            return responseTime; // Return original value if parsing fails
         }
     }
     
