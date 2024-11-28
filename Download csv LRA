@@ -16,44 +16,38 @@ public class CsvDownloader {
         this.baseUrl = baseUrl;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NORMAL)  // Enable following redirects
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
 
     public void downloadCsvFile(String reportId, String outputPath) {
         try {
             String endpoint = String.format("/%s/Report4.csv?lang=en-us", reportId);
-            System.out.println("Initial URL: " + baseUrl + endpoint);
+            System.out.println("Downloading from URL: " + baseUrl + endpoint);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + endpoint))
+                    // Add browser-like headers
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .header("Accept", "text/csv,application/csv,text/plain,*/*")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Accept-Encoding", "gzip, deflate, br")
+                    .header("Connection", "keep-alive")
                     .GET()
                     .build();
 
-            // First, follow the redirect and get the final URL
-            HttpResponse<String> headResponse = httpClient.send(request,
-                    HttpResponse.BodyHandlers.ofString());
+            // Download as byte array to handle any content type
+            HttpResponse<byte[]> response = httpClient.send(request, 
+                    HttpResponse.BodyHandlers.ofByteArray());
 
-            System.out.println("Response Code: " + headResponse.statusCode());
-            System.out.println("Response Headers:");
-            headResponse.headers().map().forEach((key, values) -> {
-                System.out.println(key + ": " + String.join(", ", values));
-            });
-
-            if (headResponse.statusCode() == 200) {
-                // Now download the actual file
-                HttpResponse<byte[]> fileResponse = httpClient.send(request,
-                        HttpResponse.BodyHandlers.ofByteArray());
-
+            if (response.statusCode() == 200) {
                 // Save the file
                 Path path = Paths.get(outputPath);
-                Files.write(path, fileResponse.body());
+                Files.write(path, response.body());
                 System.out.println("File downloaded successfully to: " + outputPath);
+                System.out.println("File size: " + response.body().length + " bytes");
             } else {
-                System.err.println("Failed to download file. Status code: " + headResponse.statusCode());
-                if (headResponse.body() != null && !headResponse.body().isEmpty()) {
-                    System.err.println("Response body: " + headResponse.body());
-                }
+                System.err.println("Failed to download file. Status code: " + response.statusCode());
             }
 
         } catch (Exception e) {
@@ -68,6 +62,6 @@ public class CsvDownloader {
         CsvDownloader downloader = new CsvDownloader(baseUrl);
         
         // Download the CSV file
-        downloader.downloadCsvFile("81328", "C:/Downloads/Report.csv");  // Adjust paths as needed
+        downloader.downloadCsvFile("81328", "C:/Downloads/Report.csv");  // Adjust path as needed
     }
 }
