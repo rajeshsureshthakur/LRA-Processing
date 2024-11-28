@@ -15,8 +15,13 @@ class XsrfTokenGenerator {
     private int sequence = 0;
 
     public String generateToken() {
-        String randomPart = String.format("%08x", random.nextInt(0xFFFFFFFF));
-        String sequencePart = String.format("%03x", sequence++ % 0xFFF);
+        // Generate an 8-character hex string for the first part
+        long randomLong = Math.abs(random.nextLong()) % 0xFFFFFFFFL;
+        String randomPart = String.format("%08x", randomLong);
+        
+        // Generate a 3-character hex string for the sequence
+        String sequencePart = String.format("%03x", Math.abs(sequence++ % 0xFFF));
+        
         return randomPart + SESSION_PART + sequencePart;
     }
 }
@@ -39,7 +44,14 @@ public class LoadRunnerAPIClient {
     private final XsrfTokenGenerator tokenGenerator;
 
     public LoadRunnerAPIClient(String baseUrl, String authToken) {
-        this.baseUrl = baseUrl;
+        if (baseUrl == null || baseUrl.trim().isEmpty()) {
+            throw new IllegalArgumentException("Base URL cannot be null or empty");
+        }
+        if (authToken == null || authToken.trim().isEmpty()) {
+            throw new IllegalArgumentException("Auth token cannot be null or empty");
+        }
+
+        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.authToken = authToken;
         this.cookieManager = new CookieManager();
         this.cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
@@ -84,6 +96,10 @@ public class LoadRunnerAPIClient {
     }
 
     public String getResults(int runId) throws IOException, InterruptedException {
+        if (runId <= 0) {
+            throw new IllegalArgumentException("Run ID must be positive");
+        }
+
         try {
             String endpoint = "/test/service/runservice.asms/GetResults";
             String fullUrl = baseUrl + endpoint;
@@ -99,7 +115,7 @@ public class LoadRunnerAPIClient {
             System.out.println("\nPreparing GetResults request...");
             System.out.println("URL: " + fullUrl);
             System.out.println("X-XSRF-Header: " + xsrfToken);
-            System.out.println("Payload: " + payload.toString());
+            System.out.println("Payload: " + payload);
 
             // Build and send request
             HttpRequest request = HttpRequest.newBuilder()
@@ -116,9 +132,9 @@ public class LoadRunnerAPIClient {
 
             // Debug output after receiving response
             System.out.println("GetResults response status: " + response.statusCode());
-            System.out.println("GetResults response body: " + response.body());
-
+            
             if (response.statusCode() >= 400) {
+                System.out.println("Error response body: " + response.body());
                 throw new LoadRunnerAPIException("Failed to get results. Status: " + 
                     response.statusCode() + ", Body: " + response.body());
             }
