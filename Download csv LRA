@@ -1,53 +1,49 @@
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.io.*;
+import java.net.URL;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 
 public class CsvDownloader {
     private final String baseUrl;
-    private final HttpClient httpClient;
 
     public CsvDownloader(String baseUrl) {
         this.baseUrl = baseUrl;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
     }
 
     public void downloadCsvFile(String reportId, String outputPath) {
         try {
             String endpoint = String.format("/%s/Report4.csv?lang=en-us", reportId);
-            System.out.println("Downloading from URL: " + baseUrl + endpoint);
+            URL url = new URL(baseUrl + endpoint);
+            System.out.println("Downloading from URL: " + url);
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + endpoint))
-                    // Add browser-like headers
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .header("Accept", "text/csv,application/csv,text/plain,*/*")
-                    .header("Accept-Language", "en-US,en;q=0.9")
-                    .header("Accept-Encoding", "gzip, deflate, br")
-                    .header("Connection", "keep-alive")
-                    .GET()
-                    .build();
-
-            // Download as byte array to handle any content type
-            HttpResponse<byte[]> response = httpClient.send(request, 
-                    HttpResponse.BodyHandlers.ofByteArray());
-
-            if (response.statusCode() == 200) {
-                // Save the file
-                Path path = Paths.get(outputPath);
-                Files.write(path, response.body());
+            URLConnection connection = url.openConnection();
+            
+            // Set headers to mimic browser
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            connection.setRequestProperty("Accept", "text/csv,application/csv,*/*");
+            
+            // Get input stream
+            try (InputStream in = connection.getInputStream();
+                 FileOutputStream out = new FileOutputStream(outputPath)) {
+                
+                // Create buffer for reading
+                byte[] buffer = new byte[4096];
+                int length;
+                
+                // Read from input stream and write to file
+                while ((length = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, length);
+                }
+                
                 System.out.println("File downloaded successfully to: " + outputPath);
-                System.out.println("File size: " + response.body().length + " bytes");
-            } else {
-                System.err.println("Failed to download file. Status code: " + response.statusCode());
+                System.out.println("File size: " + new File(outputPath).length() + " bytes");
+
+                // Preview first few bytes to verify content
+                byte[] preview = Files.readAllBytes(Paths.get(outputPath));
+                String content = new String(preview, 0, Math.min(preview.length, 100));
+                System.out.println("Content preview: " + content);
             }
 
         } catch (Exception e) {
@@ -57,11 +53,9 @@ public class CsvDownloader {
     }
 
     public static void main(String[] args) {
-        // Example usage
         String baseUrl = "https://your-server-url";  // Replace with your server URL
         CsvDownloader downloader = new CsvDownloader(baseUrl);
         
-        // Download the CSV file
         downloader.downloadCsvFile("81328", "C:/Downloads/Report.csv");  // Adjust path as needed
     }
 }
