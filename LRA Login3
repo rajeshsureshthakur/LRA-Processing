@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import org.json.JSONObject;
 
 class LoadRunnerAPIException extends RuntimeException {
@@ -39,6 +40,25 @@ public class LoadRunnerAPIClient {
                 .build();
     }
 
+    private void extractXsrfTokenFromCookies() {
+        try {
+            URI uri = new URI(baseUrl);
+            List<HttpCookie> cookies = cookieManager.getCookieStore().get(uri);
+            System.out.println("All cookies received:");
+            for (HttpCookie cookie : cookies) {
+                System.out.println("Cookie: " + cookie.getName() + " = " + cookie.getValue());
+                // Look for XSRF token in cookie names
+                if (cookie.getName().toLowerCase().contains("xsrf")) {
+                    xsrfToken = cookie.getValue();
+                    System.out.println("Found XSRF token in cookie: " + xsrfToken);
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to extract XSRF token from cookies: " + e.getMessage());
+        }
+    }
+
     public void authenticate() throws IOException, InterruptedException {
         try {
             String authEndpoint = "/res/Authenticate";
@@ -54,15 +74,24 @@ public class LoadRunnerAPIClient {
             HttpResponse<String> response = httpClient.send(authRequest, 
                     HttpResponse.BodyHandlers.ofString());
 
-            xsrfToken = response.headers().firstValue("X-XSRF-TOKEN").orElse(null);
-            
             System.out.println("Authentication response status: " + response.statusCode());
-            System.out.println("Received XSRF Token: " + xsrfToken);
-            System.out.println("Cookies received: " + cookieManager.getCookieStore().getCookies());
+            
+            // Print all response headers for debugging
+            System.out.println("Response Headers:");
+            response.headers().map().forEach((key, values) -> {
+                System.out.println(key + ": " + String.join(", ", values));
+            });
 
             if (response.statusCode() >= 400) {
                 throw new LoadRunnerAPIException("Authentication failed: " + response.statusCode() + 
                     ", Response: " + response.body());
+            }
+
+            // Extract XSRF token from cookies
+            extractXsrfTokenFromCookies();
+
+            if (xsrfToken == null) {
+                System.out.println("Warning: XSRF token not found in cookies or headers");
             }
 
         } catch (Exception e) {
@@ -85,6 +114,8 @@ public class LoadRunnerAPIClient {
             System.out.println("URL: " + baseUrl + endpoint);
             System.out.println("XSRF Token: " + xsrfToken);
             System.out.println("Payload: " + payload);
+            System.out.println("Current Cookies: ");
+            printAllCookies();
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + endpoint))
@@ -109,6 +140,18 @@ public class LoadRunnerAPIClient {
             
         } catch (Exception e) {
             throw new LoadRunnerAPIException("Failed to get results", e);
+        }
+    }
+
+    private void printAllCookies() {
+        try {
+            URI uri = new URI(baseUrl);
+            List<HttpCookie> cookies = cookieManager.getCookieStore().get(uri);
+            for (HttpCookie cookie : cookies) {
+                System.out.println(cookie.getName() + ": " + cookie.getValue());
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to print cookies: " + e.getMessage());
         }
     }
 
