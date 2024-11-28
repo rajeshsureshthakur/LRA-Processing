@@ -8,46 +8,42 @@ import org.json.JSONObject;
 
 public class LoadRunnerAPIClient {
     private final String baseUrl;
-    private final String username;
-    private final String password;
+    private final String authToken;
     private String xsrfToken;
     private final HttpClient httpClient;
     private static final int TIMEOUT_SECONDS = 30;
 
-    public LoadRunnerAPIClient(String baseUrl, String username, String password) {
+    public LoadRunnerAPIClient(String baseUrl, String authToken) {
         this.baseUrl = baseUrl;
-        this.username = username;
-        this.password = password;
+        this.authToken = authToken;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
                 .build();
-        authenticate();
+        // Get initial XSRF token
+        initializeXsrfToken();
     }
 
-    private void authenticate() {
+    private void initializeXsrfToken() {
         try {
-            JSONObject authData = new JSONObject();
-            authData.put("username", username);
-            authData.put("password", password);
-
+            // Make an initial request to get XSRF token
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/auth/login"))
+                    .uri(URI.create(baseUrl + "/api/init")) // Adjust endpoint as per your API
+                    .header("Authorization", "Bearer " + authToken)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(authData.toString()))
+                    .GET()
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, 
                     HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
-                throw new RuntimeException("Authentication failed: " + response.statusCode());
+                throw new LoadRunnerAPIException("Failed to initialize XSRF token: " + response.statusCode());
             }
 
-            // Get initial XSRF token from response headers
             updateXsrfToken(response);
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to authenticate: " + e.getMessage(), e);
+            throw new LoadRunnerAPIException("Failed to initialize client: " + e.getMessage(), e);
         }
     }
 
@@ -63,14 +59,24 @@ public class LoadRunnerAPIClient {
         return makeRequest("GET", endpoint, null);
     }
 
+    public String getTestResults(String runId) throws IOException, InterruptedException {
+        String endpoint = String.format("/runs/%s/results", runId);
+        return makeRequest("GET", endpoint, null);
+    }
+
+    public String getTestMetrics(String runId) throws IOException, InterruptedException {
+        String endpoint = String.format("/runs/%s/metrics", runId);
+        return makeRequest("GET", endpoint, null);
+    }
+
     private String makeRequest(String method, String endpoint, String requestBody) 
             throws IOException, InterruptedException {
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + endpoint))
+                .header("Authorization", "Bearer " + authToken)
                 .header("X-XSRF-TOKEN", xsrfToken)
                 .header("Content-Type", "application/json");
 
-        // Set appropriate HTTP method
         HttpRequest request;
         switch (method.toUpperCase()) {
             case "GET":
@@ -97,25 +103,35 @@ public class LoadRunnerAPIClient {
         updateXsrfToken(response);
 
         if (response.statusCode() >= 400) {
-            throw new IOException("API request failed with status: " + response.statusCode() 
+            throw new LoadRunnerAPIException("API request failed with status: " + response.statusCode() 
                     + ", body: " + response.body());
         }
 
         return response.body();
     }
 
-    // Example main method to demonstrate usage
+    // Example usage
     public static void main(String[] args) {
         try {
+            // Initialize client with auth token
+            String authToken = "your-auth-token-here";
             LoadRunnerAPIClient client = new LoadRunnerAPIClient(
                     "https://your-loadrunner-pc-server",
-                    "your_username",
-                    "your_password"
+                    authToken
             );
 
-            // Get report for a specific run
-            String reportData = client.getTestReport("run_id_123");
+            // Example: Get report for a specific run
+            String runId = "run_id_123";
+            String reportData = client.getTestReport(runId);
             System.out.println("Report data: " + reportData);
+
+            // Get test results
+            String resultsData = client.getTestResults(runId);
+            System.out.println("Results data: " + resultsData);
+
+            // Get metrics
+            String metricsData = client.getTestMetrics(runId);
+            System.out.println("Metrics data: " + metricsData);
 
         } catch (Exception e) {
             System.err.println("Error accessing API: " + e.getMessage());
@@ -124,7 +140,6 @@ public class LoadRunnerAPIClient {
     }
 }
 
-// Custom exception class for API-specific errors
 class LoadRunnerAPIException extends RuntimeException {
     public LoadRunnerAPIException(String message) {
         super(message);
