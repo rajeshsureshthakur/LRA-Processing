@@ -19,15 +19,13 @@ public class LoadRunnerAPIClient {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
                 .build();
-        // Get initial XSRF token
         initializeXsrfToken();
     }
 
     private void initializeXsrfToken() {
         try {
-            // Make an initial request to get XSRF token
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/api/init")) // Adjust endpoint as per your API
+                    .uri(URI.create(baseUrl + "/api/init"))
                     .header("Authorization", "Bearer " + authToken)
                     .header("Content-Type", "application/json")
                     .GET()
@@ -54,19 +52,21 @@ public class LoadRunnerAPIClient {
         }
     }
 
-    public String getTestReport(String runId) throws IOException, InterruptedException {
+    // New method to post test report data
+    public String postTestReportData(String runId, JSONObject reportData) throws IOException, InterruptedException {
         String endpoint = String.format("/runs/%s/report", runId);
-        return makeRequest("GET", endpoint, null);
+        return makeRequest("POST", endpoint, reportData.toString());
     }
 
-    public String getTestResults(String runId) throws IOException, InterruptedException {
+    // New method to post test results
+    public String postTestResults(String runId, JSONObject results) throws IOException, InterruptedException {
         String endpoint = String.format("/runs/%s/results", runId);
-        return makeRequest("GET", endpoint, null);
+        return makeRequest("POST", endpoint, results.toString());
     }
 
-    public String getTestMetrics(String runId) throws IOException, InterruptedException {
-        String endpoint = String.format("/runs/%s/metrics", runId);
-        return makeRequest("GET", endpoint, null);
+    // Generic method to make POST request with any endpoint and payload
+    public String postRequest(String endpoint, JSONObject payload) throws IOException, InterruptedException {
+        return makeRequest("POST", endpoint, payload.toString());
     }
 
     private String makeRequest(String method, String endpoint, String requestBody) 
@@ -77,29 +77,20 @@ public class LoadRunnerAPIClient {
                 .header("X-XSRF-TOKEN", xsrfToken)
                 .header("Content-Type", "application/json");
 
-        HttpRequest request;
-        switch (method.toUpperCase()) {
-            case "GET":
-                request = requestBuilder.GET().build();
-                break;
-            case "POST":
-                request = requestBuilder.POST(HttpRequest.BodyPublishers
-                        .ofString(requestBody != null ? requestBody : ""))
-                        .build();
-                break;
-            case "PUT":
-                request = requestBuilder.PUT(HttpRequest.BodyPublishers
-                        .ofString(requestBody != null ? requestBody : ""))
-                        .build();
-                break;
-            default:
-                throw new IllegalArgumentException("Unsupported HTTP method: " + method);
-        }
+        HttpRequest request = switch (method.toUpperCase()) {
+            case "GET" -> requestBuilder.GET().build();
+            case "POST" -> requestBuilder.POST(HttpRequest.BodyPublishers
+                    .ofString(requestBody != null ? requestBody : ""))
+                    .build();
+            case "PUT" -> requestBuilder.PUT(HttpRequest.BodyPublishers
+                    .ofString(requestBody != null ? requestBody : ""))
+                    .build();
+            default -> throw new IllegalArgumentException("Unsupported HTTP method: " + method);
+        };
 
         HttpResponse<String> response = httpClient.send(request, 
                 HttpResponse.BodyHandlers.ofString());
 
-        // Update token if new one is provided
         updateXsrfToken(response);
 
         if (response.statusCode() >= 400) {
@@ -113,25 +104,43 @@ public class LoadRunnerAPIClient {
     // Example usage
     public static void main(String[] args) {
         try {
-            // Initialize client with auth token
             String authToken = "your-auth-token-here";
             LoadRunnerAPIClient client = new LoadRunnerAPIClient(
                     "https://your-loadrunner-pc-server",
                     authToken
             );
 
-            // Example: Get report for a specific run
-            String runId = "run_id_123";
-            String reportData = client.getTestReport(runId);
-            System.out.println("Report data: " + reportData);
+            // Example 1: Posting test report data
+            JSONObject reportData = new JSONObject();
+            reportData.put("testName", "Performance Test 1");
+            reportData.put("duration", 3600);
+            reportData.put("vUsers", 50);
+            reportData.put("timestamp", System.currentTimeMillis());
 
-            // Get test results
-            String resultsData = client.getTestResults(runId);
-            System.out.println("Results data: " + resultsData);
+            String response1 = client.postTestReportData("run123", reportData);
+            System.out.println("Report posted: " + response1);
 
-            // Get metrics
-            String metricsData = client.getTestMetrics(runId);
-            System.out.println("Metrics data: " + metricsData);
+            // Example 2: Posting test results
+            JSONObject results = new JSONObject();
+            results.put("status", "completed");
+            results.put("errorRate", 0.02);
+            results.put("averageResponseTime", 250);
+            results.put("totalRequests", 10000);
+
+            String response2 = client.postTestResults("run123", results);
+            System.out.println("Results posted: " + response2);
+
+            // Example 3: Generic POST request
+            JSONObject customPayload = new JSONObject();
+            customPayload.put("customField1", "value1");
+            customPayload.put("customField2", "value2");
+            customPayload.put("metadata", new JSONObject()
+                .put("environment", "production")
+                .put("region", "us-west")
+            );
+
+            String response3 = client.postRequest("/api/custom-endpoint", customPayload);
+            System.out.println("Custom request response: " + response3);
 
         } catch (Exception e) {
             System.err.println("Error accessing API: " + e.getMessage());
