@@ -9,6 +9,16 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import org.json.JSONObject;
 
+class LoadRunnerAPIException extends RuntimeException {
+    public LoadRunnerAPIException(String message) {
+        super(message);
+    }
+
+    public LoadRunnerAPIException(String message, Throwable cause) {
+        super(message, cause);
+    }
+}
+
 public class LoadRunnerAPIClient {
     private final String baseUrl;
     private final String authToken;
@@ -37,7 +47,7 @@ public class LoadRunnerAPIClient {
             HttpRequest authRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + authEndpoint))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + authToken)  // Added Auth Token
+                    .header("Authorization", "Bearer " + authToken)
                     .GET()
                     .build();
 
@@ -56,7 +66,7 @@ public class LoadRunnerAPIClient {
             }
 
         } catch (Exception e) {
-            throw new LoadRunnerAPIException("Authentication failed: " + e.getMessage(), e);
+            throw new LoadRunnerAPIException("Authentication failed", e);
         }
     }
 
@@ -80,7 +90,7 @@ public class LoadRunnerAPIClient {
                     .uri(URI.create(baseUrl + endpoint))
                     .header("Content-Type", "application/json")
                     .header("X-XSRF-TOKEN", xsrfToken)
-                    .header("Authorization", "Bearer " + authToken)  // Added Auth Token
+                    .header("Authorization", "Bearer " + authToken)
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
 
@@ -98,22 +108,18 @@ public class LoadRunnerAPIClient {
             return response.body();
             
         } catch (Exception e) {
-            throw new LoadRunnerAPIException("Failed to get results: " + e.getMessage(), e);
+            throw new LoadRunnerAPIException("Failed to get results", e);
         }
     }
 
     public static void main(String[] args) {
         try {
-            // Initialize client with auth token
             LoadRunnerAPIClient client = new LoadRunnerAPIClient(
                     "https://myloadrunner:650",
-                    "your-auth-token-here"  // Add your actual auth token
+                    "your-auth-token-here"
             );
 
-            // First authenticate to get cookie and XSRF token
             client.authenticate();
-
-            // Then get results using the cookie, XSRF token, and auth token
             String results = client.getResults(12345);
             System.out.println("Results retrieved successfully!");
             System.out.println(results);
@@ -122,11 +128,5 @@ public class LoadRunnerAPIClient {
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
         }
-    }
-}
-
-class LoadRunnerAPIException extends RuntimeException {
-    public LoadRunnerAPIException(String message) {
-        super(message);
     }
 }
