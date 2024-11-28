@@ -11,13 +11,15 @@ import org.json.JSONObject;
 
 public class LoadRunnerAPIClient {
     private final String baseUrl;
+    private final String authToken;
     private final HttpClient httpClient;
     private final CookieManager cookieManager;
     private String xsrfToken;
     private static final int TIMEOUT_SECONDS = 30;
 
-    public LoadRunnerAPIClient(String baseUrl) {
+    public LoadRunnerAPIClient(String baseUrl, String authToken) {
         this.baseUrl = baseUrl;
+        this.authToken = authToken;
         this.cookieManager = new CookieManager();
         this.cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
         
@@ -35,13 +37,13 @@ public class LoadRunnerAPIClient {
             HttpRequest authRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + authEndpoint))
                     .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + authToken)  // Added Auth Token
                     .GET()
                     .build();
 
             HttpResponse<String> response = httpClient.send(authRequest, 
                     HttpResponse.BodyHandlers.ofString());
 
-            // Extract XSRF token from response headers
             xsrfToken = response.headers().firstValue("X-XSRF-TOKEN").orElse(null);
             
             System.out.println("Authentication response status: " + response.statusCode());
@@ -49,7 +51,8 @@ public class LoadRunnerAPIClient {
             System.out.println("Cookies received: " + cookieManager.getCookieStore().getCookies());
 
             if (response.statusCode() >= 400) {
-                throw new LoadRunnerAPIException("Authentication failed: " + response.statusCode());
+                throw new LoadRunnerAPIException("Authentication failed: " + response.statusCode() + 
+                    ", Response: " + response.body());
             }
 
         } catch (Exception e) {
@@ -77,6 +80,7 @@ public class LoadRunnerAPIClient {
                     .uri(URI.create(baseUrl + endpoint))
                     .header("Content-Type", "application/json")
                     .header("X-XSRF-TOKEN", xsrfToken)
+                    .header("Authorization", "Bearer " + authToken)  // Added Auth Token
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
 
@@ -100,13 +104,16 @@ public class LoadRunnerAPIClient {
 
     public static void main(String[] args) {
         try {
-            // Initialize client
-            LoadRunnerAPIClient client = new LoadRunnerAPIClient("https://myloadrunner:650");
+            // Initialize client with auth token
+            LoadRunnerAPIClient client = new LoadRunnerAPIClient(
+                    "https://myloadrunner:650",
+                    "your-auth-token-here"  // Add your actual auth token
+            );
 
             // First authenticate to get cookie and XSRF token
             client.authenticate();
 
-            // Then get results using the cookie and XSRF token
+            // Then get results using the cookie, XSRF token, and auth token
             String results = client.getResults(12345);
             System.out.println("Results retrieved successfully!");
             System.out.println(results);
