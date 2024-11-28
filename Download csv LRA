@@ -1,9 +1,6 @@
 import java.io.*;
 import java.net.URL;
 import java.net.URLConnection;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 public class CsvDownloader {
     private final String baseUrl;
@@ -19,31 +16,27 @@ public class CsvDownloader {
             System.out.println("Downloading from URL: " + url);
 
             URLConnection connection = url.openConnection();
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            connection.setRequestProperty("Accept", "text/csv");
             
-            // Set headers to mimic browser
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            connection.setRequestProperty("Accept", "text/csv,application/csv,*/*");
-            
-            // Get input stream
-            try (InputStream in = connection.getInputStream();
-                 FileOutputStream out = new FileOutputStream(outputPath)) {
+            // Stream directly to file
+            try (BufferedInputStream in = new BufferedInputStream(connection.getInputStream());
+                 FileOutputStream fileOutputStream = new FileOutputStream(outputPath)) {
                 
-                // Create buffer for reading
-                byte[] buffer = new byte[4096];
-                int length;
-                
-                // Read from input stream and write to file
-                while ((length = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, length);
+                byte[] dataBuffer = new byte[1024];
+                int bytesRead;
+                while ((bytesRead = in.read(dataBuffer, 0, 1024)) != -1) {
+                    fileOutputStream.write(dataBuffer, 0, bytesRead);
                 }
-                
+            }
+            
+            // Verify file was created and has content
+            File downloadedFile = new File(outputPath);
+            if (downloadedFile.exists() && downloadedFile.length() > 0) {
                 System.out.println("File downloaded successfully to: " + outputPath);
-                System.out.println("File size: " + new File(outputPath).length() + " bytes");
-
-                // Preview first few bytes to verify content
-                byte[] preview = Files.readAllBytes(Paths.get(outputPath));
-                String content = new String(preview, 0, Math.min(preview.length, 100));
-                System.out.println("Content preview: " + content);
+                System.out.println("File size: " + downloadedFile.length() + " bytes");
+            } else {
+                System.out.println("File was downloaded but might be empty");
             }
 
         } catch (Exception e) {
