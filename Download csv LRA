@@ -16,30 +16,44 @@ public class CsvDownloader {
         this.baseUrl = baseUrl;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
+                .followRedirects(HttpClient.Redirect.NORMAL)  // Enable following redirects
                 .build();
     }
 
     public void downloadCsvFile(String reportId, String outputPath) {
         try {
             String endpoint = String.format("/%s/Report4.csv?lang=en-us", reportId);
-            System.out.println("Downloading from URL: " + baseUrl + endpoint);
+            System.out.println("Initial URL: " + baseUrl + endpoint);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + endpoint))
                     .GET()
                     .build();
 
-            // Download file as bytes
-            HttpResponse<byte[]> response = httpClient.send(request, 
-                    HttpResponse.BodyHandlers.ofByteArray());
+            // First, follow the redirect and get the final URL
+            HttpResponse<String> headResponse = httpClient.send(request,
+                    HttpResponse.BodyHandlers.ofString());
 
-            if (response.statusCode() == 200) {
+            System.out.println("Response Code: " + headResponse.statusCode());
+            System.out.println("Response Headers:");
+            headResponse.headers().map().forEach((key, values) -> {
+                System.out.println(key + ": " + String.join(", ", values));
+            });
+
+            if (headResponse.statusCode() == 200) {
+                // Now download the actual file
+                HttpResponse<byte[]> fileResponse = httpClient.send(request,
+                        HttpResponse.BodyHandlers.ofByteArray());
+
                 // Save the file
                 Path path = Paths.get(outputPath);
-                Files.write(path, response.body());
+                Files.write(path, fileResponse.body());
                 System.out.println("File downloaded successfully to: " + outputPath);
             } else {
-                System.err.println("Failed to download file. Status code: " + response.statusCode());
+                System.err.println("Failed to download file. Status code: " + headResponse.statusCode());
+                if (headResponse.body() != null && !headResponse.body().isEmpty()) {
+                    System.err.println("Response body: " + headResponse.body());
+                }
             }
 
         } catch (Exception e) {
