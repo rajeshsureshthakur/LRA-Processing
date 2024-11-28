@@ -11,16 +11,13 @@ import org.json.JSONObject;
 
 public class LoadRunnerAPIClient {
     private final String baseUrl;
-    private final String authToken;
-    private String xsrfToken;
     private final HttpClient httpClient;
     private final CookieManager cookieManager;
+    private String xsrfToken;
     private static final int TIMEOUT_SECONDS = 30;
 
-    public LoadRunnerAPIClient(String baseUrl, String authToken) {
+    public LoadRunnerAPIClient(String baseUrl) {
         this.baseUrl = baseUrl;
-        this.authToken = authToken;
-        
         this.cookieManager = new CookieManager();
         this.cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
         
@@ -30,30 +27,51 @@ public class LoadRunnerAPIClient {
                 .build();
     }
 
-    public void setXsrfToken(String token) {
-        this.xsrfToken = token;
+    public void authenticate() throws IOException, InterruptedException {
         try {
-            URI uri = new URI(baseUrl);
-            HttpCookie xsrfCookie = new HttpCookie("XSRF-TOKEN", token);
-            xsrfCookie.setPath("/");
-            cookieManager.getCookieStore().add(uri, xsrfCookie);
+            String authEndpoint = "/res/Authenticate";
+            System.out.println("Authenticating with endpoint: " + baseUrl + authEndpoint);
+
+            HttpRequest authRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + authEndpoint))
+                    .header("Content-Type", "application/json")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(authRequest, 
+                    HttpResponse.BodyHandlers.ofString());
+
+            // Extract XSRF token from response headers
+            xsrfToken = response.headers().firstValue("X-XSRF-TOKEN").orElse(null);
+            
+            System.out.println("Authentication response status: " + response.statusCode());
+            System.out.println("Received XSRF Token: " + xsrfToken);
+            System.out.println("Cookies received: " + cookieManager.getCookieStore().getCookies());
+
+            if (response.statusCode() >= 400) {
+                throw new LoadRunnerAPIException("Authentication failed: " + response.statusCode());
+            }
+
         } catch (Exception e) {
-            System.err.println("Failed to store XSRF cookie: " + e.getMessage());
+            throw new LoadRunnerAPIException("Authentication failed: " + e.getMessage(), e);
         }
     }
 
     public String getResults(int runId) throws IOException, InterruptedException {
         try {
-            // Specific endpoint for GetResults
+            if (xsrfToken == null) {
+                throw new LoadRunnerAPIException("No XSRF token available. Please authenticate first.");
+            }
+
             String endpoint = "/test/service/runservice.asms/GetResults";
             
-            // Create required payload
             JSONObject payload = new JSONObject();
             payload.put("runId", runId);
             
-            System.out.println("\nRequest Details:");
+            System.out.println("\nMaking GetResults request:");
             System.out.println("URL: " + baseUrl + endpoint);
-            System.out.println("Payload: " + payload.toString(2));
+            System.out.println("XSRF Token: " + xsrfToken);
+            System.out.println("Payload: " + payload);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + endpoint))
@@ -65,40 +83,36 @@ public class LoadRunnerAPIClient {
             HttpResponse<String> response = httpClient.send(request, 
                     HttpResponse.BodyHandlers.ofString());
 
-            System.out.println("\nResponse Details:");
-            System.out.println("Status Code: " + response.statusCode());
-            System.out.println("Response Body: " + response.body());
+            System.out.println("GetResults response status: " + response.statusCode());
+            System.out.println("Response body: " + response.body());
 
             if (response.statusCode() >= 400) {
-                throw new LoadRunnerAPIException("API request failed. Status: " + response.statusCode() 
-                        + ", Response: " + response.body());
+                throw new LoadRunnerAPIException("Failed to get results. Status: " + 
+                    response.statusCode() + ", Body: " + response.body());
             }
 
             return response.body();
             
         } catch (Exception e) {
-            throw new LoadRunnerAPIException("Request failed: " + e.getMessage(), e);
+            throw new LoadRunnerAPIException("Failed to get results: " + e.getMessage(), e);
         }
     }
 
     public static void main(String[] args) {
         try {
-            // Initialize client with your server URL
-            LoadRunnerAPIClient client = new LoadRunnerAPIClient(
-                    "https://myloadrunner:650",
-                    "your-auth-token"  // If not needed, you can pass empty string
-            );
+            // Initialize client
+            LoadRunnerAPIClient client = new LoadRunnerAPIClient("https://myloadrunner:650");
 
-            // Set your XSRF token
-            client.setXsrfToken("your-xsrf-token-here");
+            // First authenticate to get cookie and XSRF token
+            client.authenticate();
 
-            // Example: Get results for run ID 12345
+            // Then get results using the cookie and XSRF token
             String results = client.getResults(12345);
             System.out.println("Results retrieved successfully!");
             System.out.println(results);
 
         } catch (Exception e) {
-            System.err.println("Error accessing API: " + e.getMessage());
+            System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -107,9 +121,5 @@ public class LoadRunnerAPIClient {
 class LoadRunnerAPIException extends RuntimeException {
     public LoadRunnerAPIException(String message) {
         super(message);
-    }
-
-    public LoadRunnerAPIException(String message, Throwable cause) {
-        super(message, cause);
     }
 }
