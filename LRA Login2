@@ -1,9 +1,13 @@
 import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import org.json.JSONObject;
 
 public class LoadRunnerAPIClient {
@@ -11,174 +15,161 @@ public class LoadRunnerAPIClient {
     private final String authToken;
     private String xsrfToken;
     private final HttpClient httpClient;
+    private final CookieManager cookieManager;
     private static final int TIMEOUT_SECONDS = 30;
 
     public LoadRunnerAPIClient(String baseUrl, String authToken) {
-        try {
-            if (baseUrl == null || baseUrl.trim().isEmpty()) {
-                throw new LoadRunnerAPIException("Base URL cannot be null or empty");
-            }
-            if (authToken == null || authToken.trim().isEmpty()) {
-                throw new LoadRunnerAPIException("Auth token cannot be null or empty");
-            }
-
-            this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-            this.authToken = authToken;
-            this.httpClient = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
-                    .build();
-            
-            System.out.println("Initializing client with base URL: " + this.baseUrl);
-            initializeXsrfToken();
-        } catch (Exception e) {
-            throw new LoadRunnerAPIException("Failed to initialize client: " + e.getMessage(), e);
-        }
+        this.baseUrl = baseUrl;
+        this.authToken = authToken;
+        
+        // Initialize cookie manager
+        this.cookieManager = new CookieManager();
+        this.cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+        
+        // Create HttpClient with cookie support
+        this.httpClient = HttpClient.newBuilder()
+                .cookieHandler(cookieManager)
+                .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .build();
+                
+        initializeXsrfToken();
     }
 
     private void initializeXsrfToken() {
         try {
-            System.out.println("Attempting to initialize XSRF token...");
-            String initUrl = baseUrl + "/api/init";
-            System.out.println("Init URL: " + initUrl);
-
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(initUrl))
+                    .uri(URI.create(baseUrl + "/api/init"))
                     .header("Authorization", "Bearer " + authToken)
                     .header("Content-Type", "application/json")
                     .GET()
                     .build();
 
-            System.out.println("Sending init request...");
             HttpResponse<String> response = httpClient.send(request, 
                     HttpResponse.BodyHandlers.ofString());
 
-            System.out.println("Init response status code: " + response.statusCode());
-            System.out.println("Init response body: " + response.body());
-
             if (response.statusCode() != 200) {
-                throw new LoadRunnerAPIException("Failed to initialize XSRF token. Status: " + 
-                    response.statusCode() + ", Body: " + response.body());
+                throw new LoadRunnerAPIException("Failed to initialize XSRF token: " + response.statusCode());
             }
 
             updateXsrfToken(response);
-            System.out.println("XSRF token initialized successfully: " + xsrfToken);
+            System.out.println("Current cookies: " + getCookiesAsString());
 
         } catch (Exception e) {
-            throw new LoadRunnerAPIException("Failed to initialize XSRF token: " + e.getMessage(), e);
+            throw new LoadRunnerAPIException("Failed to initialize client: " + e.getMessage(), e);
+        }
+    }
+
+    private String getCookiesAsString() {
+        try {
+            URI uri = new URI(baseUrl);
+            List<HttpCookie> cookies = cookieManager.getCookieStore().get(uri);
+            StringBuilder cookieString = new StringBuilder();
+            for (HttpCookie cookie : cookies) {
+                if (cookieString.length() > 0) cookieString.append("; ");
+                cookieString.append(cookie.getName()).append("=").append(cookie.getValue());
+            }
+            return cookieString.toString();
+        } catch (Exception e) {
+            return "Error getting cookies: " + e.getMessage();
         }
     }
 
     private void updateXsrfToken(HttpResponse<String> response) {
-        try {
-            String newToken = response.headers().firstValue("X-XSRF-TOKEN").orElse(null);
-            if (newToken != null) {
-                this.xsrfToken = newToken;
-                System.out.println("Updated XSRF token: " + this.xsrfToken);
-            } else {
-                System.out.println("No new XSRF token found in response headers");
+        String newToken = response.headers().firstValue("X-XSRF-TOKEN").orElse(null);
+        if (newToken != null) {
+            this.xsrfToken = newToken;
+            // Store XSRF token as a cookie if not already stored
+            try {
+                URI uri = new URI(baseUrl);
+                HttpCookie xsrfCookie = new HttpCookie("XSRF-TOKEN", newToken);
+                xsrfCookie.setPath("/");
+                cookieManager.getCookieStore().add(uri, xsrfCookie);
+            } catch (Exception e) {
+                System.err.println("Failed to store XSRF cookie: " + e.getMessage());
             }
-        } catch (Exception e) {
-            throw new LoadRunnerAPIException("Failed to update XSRF token: " + e.getMessage(), e);
-        }
-    }
-
-    public String postTestReportData(String runId, JSONObject reportData) {
-        try {
-            if (runId == null || runId.trim().isEmpty()) {
-                throw new LoadRunnerAPIException("Run ID cannot be null or empty");
-            }
-            if (reportData == null) {
-                throw new LoadRunnerAPIException("Report data cannot be null");
-            }
-
-            String endpoint = String.format("/runs/%s/report", runId);
-            System.out.println("Posting report data for run ID: " + runId);
-            System.out.println("Report data: " + reportData.toString());
-
-            return makeRequest("POST", endpoint, reportData.toString());
-        } catch (Exception e) {
-            throw new LoadRunnerAPIException("Failed to post test report data: " + e.getMessage(), e);
         }
     }
 
     private String makeRequest(String method, String endpoint, String requestBody) 
             throws IOException, InterruptedException {
         try {
-            System.out.println("\nMaking " + method + " request to endpoint: " + endpoint);
-            System.out.println("Request body: " + requestBody);
-
             String fullUrl = baseUrl + endpoint;
-            System.out.println("Full URL: " + fullUrl);
+            
+            // Get current cookies
+            String cookies = getCookiesAsString();
+            System.out.println("Sending request with cookies: " + cookies);
 
             HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(fullUrl))
                     .header("Authorization", "Bearer " + authToken)
                     .header("X-XSRF-TOKEN", xsrfToken)
-                    .header("Content-Type", "application/json");
+                    .header("Content-Type", "application/json")
+                    .header("Cookie", cookies);  // Add cookies to request
 
-            HttpRequest request;
-            switch (method.toUpperCase()) {
-                case "GET":
-                    request = requestBuilder.GET().build();
-                    break;
-                case "POST":
-                    request = requestBuilder.POST(HttpRequest.BodyPublishers
-                            .ofString(requestBody != null ? requestBody : ""))
-                            .build();
-                    break;
-                default:
-                    throw new LoadRunnerAPIException("Unsupported HTTP method: " + method);
-            }
+            HttpRequest request = switch (method.toUpperCase()) {
+                case "GET" -> requestBuilder.GET().build();
+                case "POST" -> requestBuilder.POST(HttpRequest.BodyPublishers
+                        .ofString(requestBody != null ? requestBody : ""))
+                        .build();
+                default -> throw new IllegalArgumentException("Unsupported HTTP method: " + method);
+            };
 
-            System.out.println("Sending request with headers: " + request.headers());
             HttpResponse<String> response = httpClient.send(request, 
                     HttpResponse.BodyHandlers.ofString());
 
-            System.out.println("Response status code: " + response.statusCode());
-            System.out.println("Response body: " + response.body());
-
-            updateXsrfToken(response);
+            // Print response cookies
+            System.out.println("Received cookies: " + getCookiesAsString());
 
             if (response.statusCode() >= 400) {
-                throw new LoadRunnerAPIException("API request failed with status: " + 
-                    response.statusCode() + ", body: " + response.body());
+                throw new LoadRunnerAPIException("API request failed with status: " + response.statusCode() 
+                        + ", body: " + response.body());
             }
 
+            updateXsrfToken(response);
             return response.body();
+            
         } catch (Exception e) {
             throw new LoadRunnerAPIException("Request failed: " + e.getMessage(), e);
         }
     }
 
+    public String postTestReportData(String runId, JSONObject reportData) throws IOException, InterruptedException {
+        String endpoint = String.format("/runs/%s/report", runId);
+        return makeRequest("POST", endpoint, reportData.toString());
+    }
+
+    // Example usage
     public static void main(String[] args) {
         try {
-            // Replace these with your actual values
-            String baseUrl = "https://your-loadrunner-pc-server";
-            String authToken = "your-auth-token-here";
-            String runId = "your-run-id";
+            LoadRunnerAPIClient client = new LoadRunnerAPIClient(
+                    "https://your-loadrunner-pc-server",
+                    "your-auth-token"
+            );
 
-            System.out.println("Starting LoadRunner API client...");
-            LoadRunnerAPIClient client = new LoadRunnerAPIClient(baseUrl, authToken);
-
-            // Create test report data
+            // Create test payload
             JSONObject reportData = new JSONObject();
-            try {
-                reportData.put("testName", "Performance Test 1");
-                reportData.put("duration", 3600);
-                reportData.put("vUsers", 50);
-                reportData.put("timestamp", System.currentTimeMillis());
-            } catch (Exception e) {
-                throw new LoadRunnerAPIException("Failed to create JSON payload: " + e.getMessage(), e);
-            }
+            reportData.put("testName", "Performance Test 1");
+            reportData.put("duration", 3600);
+            reportData.put("vUsers", 50);
+            reportData.put("timestamp", System.currentTimeMillis());
 
-            // Post the test report data
-            System.out.println("\nPosting test report data...");
-            String response = client.postTestReportData(runId, reportData);
-            System.out.println("Successfully posted test report. Response: " + response);
+            // Send request with cookies
+            String response = client.postTestReportData("run123", reportData);
+            System.out.println("Response: " + response);
 
         } catch (Exception e) {
             System.err.println("Error accessing API: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+}
+
+class LoadRunnerAPIException extends RuntimeException {
+    public LoadRunnerAPIException(String message) {
+        super(message);
+    }
+
+    public LoadRunnerAPIException(String message, Throwable cause) {
+        super(message, cause);
     }
 }
