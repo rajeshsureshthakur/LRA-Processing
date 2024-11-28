@@ -1,14 +1,30 @@
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
-import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.List;
+import java.util.Random;
 import org.json.JSONObject;
+
+class XsrfTokenGenerator {
+    private static final String SESSION_PART = "19371eb9";  // Constant middle part
+    private final Random random = new Random();
+    private int sequence = 0;
+
+    public String generateToken() {
+        // Generate random 8-character hex for first part
+        String randomPart = String.format("%08x", random.nextInt(0xFFFFFFFF));
+        
+        // Get 3-character hex for sequence (incrementing)
+        String sequencePart = String.format("%03x", sequence++ % 0xFFF);
+        
+        // Combine all parts
+        return randomPart + SESSION_PART + sequencePart;
+    }
+}
 
 class LoadRunnerAPIException extends RuntimeException {
     public LoadRunnerAPIException(String message) {
@@ -25,38 +41,19 @@ public class LoadRunnerAPIClient {
     private final String authToken;
     private final HttpClient httpClient;
     private final CookieManager cookieManager;
-    private String xsrfToken;
-    private static final int TIMEOUT_SECONDS = 30;
+    private final XsrfTokenGenerator tokenGenerator;
 
     public LoadRunnerAPIClient(String baseUrl, String authToken) {
         this.baseUrl = baseUrl;
         this.authToken = authToken;
         this.cookieManager = new CookieManager();
         this.cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+        this.tokenGenerator = new XsrfTokenGenerator();
         
         this.httpClient = HttpClient.newBuilder()
                 .cookieHandler(cookieManager)
-                .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .connectTimeout(Duration.ofSeconds(30))
                 .build();
-    }
-
-    private void extractXsrfTokenFromCookies() {
-        try {
-            URI uri = new URI(baseUrl);
-            List<HttpCookie> cookies = cookieManager.getCookieStore().get(uri);
-            System.out.println("All cookies received:");
-            for (HttpCookie cookie : cookies) {
-                System.out.println("Cookie: " + cookie.getName() + " = " + cookie.getValue());
-                // Look for XSRF token in cookie names
-                if (cookie.getName().toLowerCase().contains("xsrf")) {
-                    xsrfToken = cookie.getValue();
-                    System.out.println("Found XSRF token in cookie: " + xsrfToken);
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("Failed to extract XSRF token from cookies: " + e.getMessage());
-        }
     }
 
     public void authenticate() throws IOException, InterruptedException {
@@ -64,10 +61,15 @@ public class LoadRunnerAPIClient {
             String authEndpoint = "/res/Authenticate";
             System.out.println("Authenticating with endpoint: " + baseUrl + authEndpoint);
 
+            // Generate initial XSRF token
+            String xsrfToken = tokenGenerator.generateToken();
+            System.out.println("Generated initial X-XSRF-Header: " + xsrfToken);
+
             HttpRequest authRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + authEndpoint))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + authToken)
+                    .header("X-XSRF-Header", xsrfToken)
                     .GET()
                     .build();
 
@@ -75,23 +77,10 @@ public class LoadRunnerAPIClient {
                     HttpResponse.BodyHandlers.ofString());
 
             System.out.println("Authentication response status: " + response.statusCode());
-            
-            // Print all response headers for debugging
-            System.out.println("Response Headers:");
-            response.headers().map().forEach((key, values) -> {
-                System.out.println(key + ": " + String.join(", ", values));
-            });
 
             if (response.statusCode() >= 400) {
                 throw new LoadRunnerAPIException("Authentication failed: " + response.statusCode() + 
                     ", Response: " + response.body());
-            }
-
-            // Extract XSRF token from cookies
-            extractXsrfTokenFromCookies();
-
-            if (xsrfToken == null) {
-                System.out.println("Warning: XSRF token not found in cookies or headers");
             }
 
         } catch (Exception e) {
@@ -101,27 +90,24 @@ public class LoadRunnerAPIClient {
 
     public String getResults(int runId) throws IOException, InterruptedException {
         try {
-            if (xsrfToken == null) {
-                throw new LoadRunnerAPIException("No XSRF token available. Please authenticate first.");
-            }
-
             String endpoint = "/test/service/runservice.asms/GetResults";
+            
+            // Generate new token for this request
+            String xsrfToken = tokenGenerator.generateToken();
+            System.out.println("Generated new X-XSRF-Header: " + xsrfToken);
             
             JSONObject payload = new JSONObject();
             payload.put("runId", runId);
             
             System.out.println("\nMaking GetResults request:");
             System.out.println("URL: " + baseUrl + endpoint);
-            System.out.println("XSRF Token: " + xsrfToken);
             System.out.println("Payload: " + payload);
-            System.out.println("Current Cookies: ");
-            printAllCookies();
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + endpoint))
                     .header("Content-Type", "application/json")
-                    .header("X-XSRF-TOKEN", xsrfToken)
                     .header("Authorization", "Bearer " + authToken)
+                    .header("X-XSRF-Header", xsrfToken)
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
 
@@ -129,9 +115,8 @@ public class LoadRunnerAPIClient {
                     HttpResponse.BodyHandlers.ofString());
 
             System.out.println("GetResults response status: " + response.statusCode());
-            System.out.println("Response body: " + response.body());
-
             if (response.statusCode() >= 400) {
+                System.out.println("Error response body: " + response.body());
                 throw new LoadRunnerAPIException("Failed to get results. Status: " + 
                     response.statusCode() + ", Body: " + response.body());
             }
@@ -140,18 +125,6 @@ public class LoadRunnerAPIClient {
             
         } catch (Exception e) {
             throw new LoadRunnerAPIException("Failed to get results", e);
-        }
-    }
-
-    private void printAllCookies() {
-        try {
-            URI uri = new URI(baseUrl);
-            List<HttpCookie> cookies = cookieManager.getCookieStore().get(uri);
-            for (HttpCookie cookie : cookies) {
-                System.out.println(cookie.getName() + ": " + cookie.getValue());
-            }
-        } catch (Exception e) {
-            System.err.println("Failed to print cookies: " + e.getMessage());
         }
     }
 
