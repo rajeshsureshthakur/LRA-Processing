@@ -1,0 +1,109 @@
+import java.io.*;
+import java.util.*;
+
+public class CSVProcessor {
+    public static void main(String[] args) {
+        // File paths - replace with your actual file paths
+        String cpuFile = "file1.csv";        // Contains max CPU
+        String heapFile = "file2.csv";       // Contains max heap
+        String gcFile = "file3.csv";         // Contains GC
+        String avgFile = "file4.csv";        // Contains avg CPU and heap
+        String outputFile = "output.csv";
+
+        // Maps to store data from each file
+        Map<String, String> cpuMaxData = new HashMap<>();
+        Map<String, String> heapMaxData = new HashMap<>();
+        Map<String, String> gcData = new HashMap<>();
+        Map<String, String[]> avgData = new HashMap<>();  // Will store both avg CPU and heap
+        Set<String> allApplications = new HashSet<>();
+
+        // Read all files
+        try {
+            readCSVFile(cpuFile, cpuMaxData, allApplications, "CPU_MAX");
+            readCSVFile(heapFile, heapMaxData, allApplications, "HEAP_MAX");
+            readCSVFile(gcFile, gcData, allApplications, "GC");
+            readAvgFile(avgFile, avgData, allApplications);
+
+            // Write combined data to output file
+            writeOutputFile(outputFile, allApplications, cpuMaxData, heapMaxData, gcData, avgData);
+            
+            System.out.println("Processing completed successfully. Check " + outputFile);
+            
+        } catch (IOException e) {
+            System.err.println("Error processing files: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private static void readCSVFile(String filePath, Map<String, String> dataMap, 
+            Set<String> applications, String dataType) throws IOException {
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            // Skip header if exists
+            br.readLine();
+            
+            while ((line = br.readLine()) != null) {
+                String[] values = line.split(",");
+                if (values.length >= 3) {
+                    String appName = values[0].trim();
+                    String value = values[2].trim();  // CPU/Heap/GC value in column C
+                    dataMap.put(appName, value);
+                    applications.add(appName);
+                }
+            }
+        }
+    }
+
+    private static void readAvgFile(String filePath, Map<String, String[]> avgData, 
+            Set<String> applications) throws IOException {
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            // Skip header if exists
+            br.readLine();
+            
+            while ((line = br.readLine()) != null) {
+                String[] values = line.split(",");
+                if (values.length >= 3) {
+                    String appName = values[0].trim();
+                    String cpuAvg = values[1].trim();  // CPU avg in column B
+                    String heapAvg = values[2].trim(); // Heap avg in column C
+                    avgData.put(appName, new String[]{cpuAvg, heapAvg});
+                    applications.add(appName);
+                }
+            }
+        }
+    }
+
+    private static void writeOutputFile(String outputFile, Set<String> applications,
+            Map<String, String> cpuMaxData, Map<String, String> heapMaxData,
+            Map<String, String> gcData, Map<String, String[]> avgData) throws IOException {
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(outputFile))) {
+            // Write header
+            bw.write("Application Name,CPU Max,CPU Avg,Heap Max,Heap Avg,GC");
+            bw.newLine();
+
+            // Write data for each application
+            for (String app : applications) {
+                StringBuilder line = new StringBuilder();
+                line.append(app).append(",");
+                line.append(cpuMaxData.getOrDefault(app, "")).append(",");
+                
+                // Add CPU Average
+                String[] avgValues = avgData.getOrDefault(app, new String[]{"", ""});
+                line.append(avgValues[0]).append(",");
+                
+                // Add Heap Max
+                line.append(heapMaxData.getOrDefault(app, "")).append(",");
+                
+                // Add Heap Average
+                line.append(avgValues[1]).append(",");
+                
+                // Add GC
+                line.append(gcData.getOrDefault(app, ""));
+                
+                bw.write(line.toString());
+                bw.newLine();
+            }
+        }
+    }
+}
