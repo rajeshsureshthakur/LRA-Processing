@@ -10,18 +10,13 @@ import java.util.Random;
 import org.json.JSONObject;
 
 class XsrfTokenGenerator {
-    private static final String SESSION_PART = "19371eb9";  // Constant middle part
+    private static final String SESSION_PART = "19371eb9";
     private final Random random = new Random();
     private int sequence = 0;
 
     public String generateToken() {
-        // Generate random 8-character hex for first part
         String randomPart = String.format("%08x", random.nextInt(0xFFFFFFFF));
-        
-        // Get 3-character hex for sequence (incrementing)
         String sequencePart = String.format("%03x", sequence++ % 0xFFF);
-        
-        // Combine all parts
         return randomPart + SESSION_PART + sequencePart;
     }
 }
@@ -59,31 +54,31 @@ public class LoadRunnerAPIClient {
     public void authenticate() throws IOException, InterruptedException {
         try {
             String authEndpoint = "/res/Authenticate";
-            System.out.println("Authenticating with endpoint: " + baseUrl + authEndpoint);
-
-            // Generate initial XSRF token
-            String xsrfToken = tokenGenerator.generateToken();
-            System.out.println("Generated initial X-XSRF-Header: " + xsrfToken);
+            System.out.println("\nStarting authentication...");
+            System.out.println("Authentication URL: " + baseUrl + authEndpoint);
 
             HttpRequest authRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + authEndpoint))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + authToken)
-                    .header("X-XSRF-Header", xsrfToken)
                     .GET()
                     .build();
 
+            System.out.println("Sending authentication request...");
             HttpResponse<String> response = httpClient.send(authRequest, 
                     HttpResponse.BodyHandlers.ofString());
 
             System.out.println("Authentication response status: " + response.statusCode());
 
             if (response.statusCode() >= 400) {
-                throw new LoadRunnerAPIException("Authentication failed: " + response.statusCode() + 
-                    ", Response: " + response.body());
+                System.out.println("Authentication error response: " + response.body());
+                throw new LoadRunnerAPIException("Authentication failed with status: " + response.statusCode());
             }
 
+            System.out.println("Authentication successful");
+
         } catch (Exception e) {
+            System.err.println("Authentication error details: " + e.getMessage());
             throw new LoadRunnerAPIException("Authentication failed", e);
         }
     }
@@ -91,32 +86,39 @@ public class LoadRunnerAPIClient {
     public String getResults(int runId) throws IOException, InterruptedException {
         try {
             String endpoint = "/test/service/runservice.asms/GetResults";
+            String fullUrl = baseUrl + endpoint;
             
-            // Generate new token for this request
+            // Generate new token
             String xsrfToken = tokenGenerator.generateToken();
-            System.out.println("Generated new X-XSRF-Header: " + xsrfToken);
             
+            // Create payload
             JSONObject payload = new JSONObject();
             payload.put("runId", runId);
             
-            System.out.println("\nMaking GetResults request:");
-            System.out.println("URL: " + baseUrl + endpoint);
-            System.out.println("Payload: " + payload);
+            // Debug output before making request
+            System.out.println("\nPreparing GetResults request...");
+            System.out.println("URL: " + fullUrl);
+            System.out.println("X-XSRF-Header: " + xsrfToken);
+            System.out.println("Payload: " + payload.toString());
 
+            // Build and send request
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + endpoint))
+                    .uri(URI.create(fullUrl))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + authToken)
                     .header("X-XSRF-Header", xsrfToken)
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
 
+            System.out.println("Sending GetResults request...");
             HttpResponse<String> response = httpClient.send(request, 
                     HttpResponse.BodyHandlers.ofString());
 
+            // Debug output after receiving response
             System.out.println("GetResults response status: " + response.statusCode());
+            System.out.println("GetResults response body: " + response.body());
+
             if (response.statusCode() >= 400) {
-                System.out.println("Error response body: " + response.body());
                 throw new LoadRunnerAPIException("Failed to get results. Status: " + 
                     response.statusCode() + ", Body: " + response.body());
             }
@@ -124,24 +126,33 @@ public class LoadRunnerAPIClient {
             return response.body();
             
         } catch (Exception e) {
-            throw new LoadRunnerAPIException("Failed to get results", e);
+            System.err.println("GetResults error details: " + e.getMessage());
+            throw new LoadRunnerAPIException("Failed to get results: " + e.getMessage(), e);
         }
     }
 
     public static void main(String[] args) {
         try {
+            System.out.println("Starting LoadRunner API Client...");
+            
+            // Initialize client
             LoadRunnerAPIClient client = new LoadRunnerAPIClient(
                     "https://myloadrunner:650",
                     "your-auth-token-here"
             );
 
+            // Authenticate
+            System.out.println("\nStarting authentication process...");
             client.authenticate();
+
+            // Get results
+            System.out.println("\nGetting results...");
             String results = client.getResults(12345);
-            System.out.println("Results retrieved successfully!");
+            System.out.println("\nResults retrieved successfully:");
             System.out.println(results);
 
         } catch (Exception e) {
-            System.err.println("Error: " + e.getMessage());
+            System.err.println("\nError in main: " + e.getMessage());
             e.printStackTrace();
         }
     }
