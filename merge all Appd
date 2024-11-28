@@ -8,6 +8,7 @@ public class CSVProcessor {
         String heapFile = "file2.csv";       // Contains max heap
         String gcFile = "file3.csv";         // Contains GC
         String avgFile = "file4.csv";        // Contains avg CPU and heap
+        String artFile = "file5.csv";        // Contains ART names
         String outputFile = "output.csv";
 
         // Maps to store data from each file
@@ -15,6 +16,7 @@ public class CSVProcessor {
         Map<String, String> heapMaxData = new HashMap<>();
         Map<String, String> gcData = new HashMap<>();
         Map<String, String[]> avgData = new HashMap<>();  // Will store both avg CPU and heap
+        Map<String, String> artData = new HashMap<>();    // Will store ART names
         Set<String> allApplications = new HashSet<>();
 
         // Read all files
@@ -23,9 +25,10 @@ public class CSVProcessor {
             readCSVFile(heapFile, heapMaxData, allApplications, "HEAP_MAX");
             readCSVFile(gcFile, gcData, allApplications, "GC");
             readAvgFile(avgFile, avgData, allApplications);
+            readARTFile(artFile, artData, allApplications);
 
             // Write combined data to output file
-            writeOutputFile(outputFile, allApplications, cpuMaxData, heapMaxData, gcData, avgData);
+            writeOutputFile(outputFile, allApplications, cpuMaxData, heapMaxData, gcData, avgData, artData);
             
             System.out.println("Processing completed successfully. Check " + outputFile);
             
@@ -46,7 +49,7 @@ public class CSVProcessor {
                 String[] values = line.split(",");
                 if (values.length >= 3) {
                     String appName = values[0].trim();
-                    String value = values[2].trim();  // CPU/Heap/GC value in column C
+                    String value = values[2].trim();
                     dataMap.put(appName, value);
                     applications.add(appName);
                 }
@@ -65,9 +68,28 @@ public class CSVProcessor {
                 String[] values = line.split(",");
                 if (values.length >= 3) {
                     String appName = values[0].trim();
-                    String cpuAvg = values[1].trim();  // CPU avg in column B
-                    String heapAvg = values[2].trim(); // Heap avg in column C
+                    String cpuAvg = values[1].trim();
+                    String heapAvg = values[2].trim();
                     avgData.put(appName, new String[]{cpuAvg, heapAvg});
+                    applications.add(appName);
+                }
+            }
+        }
+    }
+
+    private static void readARTFile(String filePath, Map<String, String> artData, 
+            Set<String> applications) throws IOException {
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            // Skip header if exists
+            br.readLine();
+            
+            while ((line = br.readLine()) != null) {
+                String[] values = line.split(",");
+                if (values.length >= 2) {
+                    String appName = values[0].trim();
+                    String artName = values[1].trim();
+                    artData.put(appName, artName);
                     applications.add(appName);
                 }
             }
@@ -76,26 +98,28 @@ public class CSVProcessor {
 
     private static void writeOutputFile(String outputFile, Set<String> applications,
             Map<String, String> cpuMaxData, Map<String, String> heapMaxData,
-            Map<String, String> gcData, Map<String, String[]> avgData) throws IOException {
+            Map<String, String> gcData, Map<String, String[]> avgData,
+            Map<String, String> artData) throws IOException {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(outputFile))) {
             // Write header
-            bw.write("Application Name,CPU Max,CPU Avg,Heap Max,Heap Avg,GC");
+            bw.write("Application Name,ART Name,CPU Max,CPU Avg,Heap Max,Heap Avg,GC");
             bw.newLine();
 
             // Write data for each application
             for (String app : applications) {
                 StringBuilder line = new StringBuilder();
                 line.append(app).append(",");
-                line.append(cpuMaxData.getOrDefault(app, "")).append(",");
                 
-                // Add CPU Average
+                // Add ART Name
+                line.append(artData.getOrDefault(app, "")).append(",");
+                
+                // Add CPU Max and Avg
+                line.append(cpuMaxData.getOrDefault(app, "")).append(",");
                 String[] avgValues = avgData.getOrDefault(app, new String[]{"", ""});
                 line.append(avgValues[0]).append(",");
                 
-                // Add Heap Max
+                // Add Heap Max and Avg
                 line.append(heapMaxData.getOrDefault(app, "")).append(",");
-                
-                // Add Heap Average
                 line.append(avgValues[1]).append(",");
                 
                 // Add GC
