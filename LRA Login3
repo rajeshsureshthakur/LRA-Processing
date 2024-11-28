@@ -1,0 +1,107 @@
+import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import org.json.JSONObject;
+
+public class LoadRunnerAPIClient {
+    private final String baseUrl;
+    private final HttpClient httpClient;
+    private final CookieManager cookieManager;
+    private String xsrfToken;
+    private static final int TIMEOUT_SECONDS = 30;
+
+    public LoadRunnerAPIClient(String baseUrl) {
+        this.baseUrl = baseUrl;
+        this.cookieManager = new CookieManager();
+        this.cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+        
+        this.httpClient = HttpClient.newBuilder()
+                .cookieHandler(cookieManager)
+                .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .build();
+    }
+
+    public void setXsrfToken(String token) {
+        this.xsrfToken = token;
+    }
+
+    public void setCookie(String name, String value) {
+        try {
+            URI uri = new URI(baseUrl);
+            HttpCookie cookie = new HttpCookie(name, value);
+            cookie.setPath("/");
+            cookieManager.getCookieStore().add(uri, cookie);
+        } catch (Exception e) {
+            System.err.println("Failed to set cookie: " + e.getMessage());
+        }
+    }
+
+    public String getResults(int runId) throws IOException, InterruptedException {
+        try {
+            String endpoint = "/test/service/runservice.asms/GetResults";
+            
+            // Create payload
+            JSONObject payload = new JSONObject();
+            payload.put("runId", runId);
+            
+            // Debug information
+            System.out.println("Making request to: " + baseUrl + endpoint);
+            System.out.println("Payload: " + payload.toString());
+            System.out.println("XSRF Token: " + xsrfToken);
+
+            // Build request
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + endpoint))
+                    .header("Content-Type", "application/json")
+                    .header("X-XSRF-TOKEN", xsrfToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
+                    .build();
+
+            // Send request
+            HttpResponse<String> response = httpClient.send(request, 
+                    HttpResponse.BodyHandlers.ofString());
+
+            // Debug response
+            System.out.println("Response Status: " + response.statusCode());
+            System.out.println("Response Body: " + response.body());
+
+            if (response.statusCode() >= 400) {
+                throw new RuntimeException("Failed to get results. Status: " + 
+                    response.statusCode() + ", Body: " + response.body());
+            }
+
+            return response.body();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get results: " + e.getMessage(), e);
+        }
+    }
+
+    public static void main(String[] args) {
+        try {
+            // Initialize client
+            LoadRunnerAPIClient client = new LoadRunnerAPIClient("https://myloadrunner:650");
+
+            // Set your XSRF token
+            client.setXsrfToken("your-xsrf-token-here");
+
+            // Set any required cookies
+            client.setCookie("cookie-name", "cookie-value");
+
+            // Get results for run ID
+            String results = client.getResults(12345);
+            System.out.println("Results retrieved successfully!");
+            System.out.println(results);
+
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
